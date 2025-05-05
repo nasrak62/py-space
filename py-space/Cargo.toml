@@ -1,0 +1,7 @@
+[package]
+name = "py-space"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+py-space-utils = {path = "../py-space-utils"}
