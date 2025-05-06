@@ -15,3 +15,5 @@ class Boom:
 
 
 first()
+boom = Boom()
+boom.bim()

@@ -15,4 +15,11 @@ impl FunctionDef {
             class_name,
         }
     }
+
+    pub fn full_name(&self) -> String {
+        match &self.class_name {
+            None => self.name.clone(),
+            Some(value) => String::from(value) + "." + &self.name,
+        }
+    }
 }

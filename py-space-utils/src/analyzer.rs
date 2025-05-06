@@ -48,12 +48,23 @@ pub fn analyze_project() -> Result<bool, PySpaceError> {
     dbg!(&functions);
 
     for function in &functions {
-        if !used_functions.contains(&function.name) {
-            unused_function.insert(function);
+        let name = function.full_name();
+        let path = function.file.to_str().map_or("", |value| value);
+
+        if !used_functions.contains(&name) {
+            unused_function.insert((name, path));
         }
     }
 
     dbg!(&used_functions, &unused_function);
+
+    let mut result_string = String::from("");
+
+    for value in unused_function {
+        result_string += &format!("{}: {}\n", value.0, value.1);
+    }
+
+    print!("{}", result_string);
 
     Ok(true)
 }

@@ -14,201 +14,236 @@ enum FunctionDefOptions {
     StmtAsyncFunctionDef(ast::StmtAsyncFunctionDef),
 }
 
+fn extract_inner_caller_id(value: ast::ExprAttribute) -> Option<String> {
+    let id = match *value.value {
+        ast::Expr::Call(inner_call) => match *inner_call.func {
+            ast::Expr::Name(inner_name) => inner_name.id.to_string(),
+            _ => return None,
+        },
+
+        ast::Expr::Name(inner_name) => inner_name.id.to_string(),
+
+        _ => return None,
+    };
+
+    Some(format!("{}.{}", id, value.attr))
+}
+
 fn extract_called_function_id(data: ast::ExprCall) -> Option<String> {
     let func_value = *data.func;
 
     match func_value {
         ast::Expr::Name(value) => Some(value.id.to_string()),
-        ast::Expr::Attribute(value) => Some(value.attr.to_string()),
+        ast::Expr::Attribute(value) => extract_inner_caller_id(value),
         _ => None,
     }
 }
 
-fn handle_expression(expression: &ast::Expr) -> HashSet<String> {
+fn handle_expression(expression: &ast::Expr, class_name: Option<String>) -> HashSet<String> {
     let mut used_functions = HashSet::new();
-
-    dbg!(&expression);
 
     match expression {
         ast::Expr::Call(value) => {
-            dbg!(&value);
+            dbg!("expr::call", &value, &class_name);
 
             let name = extract_called_function_id(value.clone());
 
             if name.is_some() {
-                used_functions.insert(name.unwrap());
+                let name_value = name.unwrap();
+                let full_name = match class_name.clone() {
+                    Some(value) => value + "." + &name_value,
+                    None => name_value,
+                };
+
+                used_functions.insert(full_name);
             }
 
             for arg in &value.args {
-                used_functions.extend(handle_expression(&arg));
+                used_functions.extend(handle_expression(&arg, class_name.clone()));
             }
 
             for keyword in &value.keywords {
-                used_functions.extend(handle_expression(&keyword.value));
+                used_functions.extend(handle_expression(&keyword.value, class_name.clone()));
             }
         }
 
         ast::Expr::BoolOp(value) => {
             for data in &value.values {
-                used_functions.extend(handle_expression(data));
+                used_functions.extend(handle_expression(data, class_name.clone()));
             }
         }
 
         ast::Expr::NamedExpr(value) => {
-            used_functions.extend(handle_expression(&value.target));
-            used_functions.extend(handle_expression(&value.value));
+            used_functions.extend(handle_expression(&value.target, class_name.clone()));
+            used_functions.extend(handle_expression(&value.value, class_name.clone()));
         }
 
         ast::Expr::BinOp(value) => {
-            used_functions.extend(handle_expression(&value.left));
-            used_functions.extend(handle_expression(&value.right));
+            used_functions.extend(handle_expression(&value.left, class_name.clone()));
+            used_functions.extend(handle_expression(&value.right, class_name.clone()));
         }
 
         ast::Expr::UnaryOp(value) => {
-            used_functions.extend(handle_expression(&value.operand));
+            used_functions.extend(handle_expression(&value.operand, class_name.clone()));
         }
 
         ast::Expr::Lambda(value) => {
-            used_functions.extend(handle_expression(&value.body));
+            used_functions.extend(handle_expression(&value.body, class_name.clone()));
         }
 
         ast::Expr::IfExp(value) => {
-            used_functions.extend(handle_expression(&value.test));
-            used_functions.extend(handle_expression(&value.orelse));
-            used_functions.extend(handle_expression(&value.body));
+            used_functions.extend(handle_expression(&value.test, class_name.clone()));
+            used_functions.extend(handle_expression(&value.orelse, class_name.clone()));
+            used_functions.extend(handle_expression(&value.body, class_name.clone()));
         }
 
         ast::Expr::Dict(value) => {
             for key in &value.keys {
                 if key.is_some() {
-                    used_functions.extend(handle_expression(&key.clone().unwrap()));
+                    used_functions
+                        .extend(handle_expression(&key.clone().unwrap(), class_name.clone()));
                 }
             }
 
             for dict_value in &value.values {
-                used_functions.extend(handle_expression(&dict_value));
+                used_functions.extend(handle_expression(&dict_value, class_name.clone()));
             }
         }
 
         ast::Expr::Set(value) => {
             for element in &value.elts {
-                used_functions.extend(handle_expression(&element));
+                used_functions.extend(handle_expression(&element, class_name.clone()));
             }
         }
 
         ast::Expr::ListComp(value) => {
-            used_functions.extend(handle_expression(&value.elt));
+            used_functions.extend(handle_expression(&value.elt, class_name.clone()));
 
             for generator in &value.generators {
-                used_functions.extend(handle_expression(&generator.target));
-                used_functions.extend(handle_expression(&generator.iter));
+                used_functions.extend(handle_expression(&generator.target, class_name.clone()));
+                used_functions.extend(handle_expression(&generator.iter, class_name.clone()));
 
                 for inner_value in &generator.ifs {
-                    used_functions.extend(handle_expression(&inner_value));
+                    used_functions.extend(handle_expression(&inner_value, class_name.clone()));
                 }
             }
         }
 
         ast::Expr::SetComp(value) => {
-            used_functions.extend(handle_expression(&value.elt));
+            used_functions.extend(handle_expression(&value.elt, class_name.clone()));
 
             for generator in &value.generators {
-                used_functions.extend(handle_expression(&generator.target));
-                used_functions.extend(handle_expression(&generator.iter));
+                used_functions.extend(handle_expression(&generator.target, class_name.clone()));
+                used_functions.extend(handle_expression(&generator.iter, class_name.clone()));
 
                 for inner_value in &generator.ifs {
-                    used_functions.extend(handle_expression(&inner_value));
+                    used_functions.extend(handle_expression(&inner_value, class_name.clone()));
                 }
             }
         }
         ast::Expr::DictComp(value) => {
-            used_functions.extend(handle_expression(&value.key));
-            used_functions.extend(handle_expression(&value.value));
+            used_functions.extend(handle_expression(&value.key, class_name.clone()));
+            used_functions.extend(handle_expression(&value.value, class_name.clone()));
 
             for generator in &value.generators {
-                used_functions.extend(handle_expression(&generator.target));
-                used_functions.extend(handle_expression(&generator.iter));
+                used_functions.extend(handle_expression(&generator.target, class_name.clone()));
+                used_functions.extend(handle_expression(&generator.iter, class_name.clone()));
 
                 for inner_value in &generator.ifs {
-                    used_functions.extend(handle_expression(&inner_value));
+                    used_functions.extend(handle_expression(&inner_value, class_name.clone()));
                 }
             }
         }
         ast::Expr::GeneratorExp(value) => {
-            used_functions.extend(handle_expression(&value.elt));
+            used_functions.extend(handle_expression(&value.elt, class_name.clone()));
 
             for generator in &value.generators {
-                used_functions.extend(handle_expression(&generator.target));
-                used_functions.extend(handle_expression(&generator.iter));
+                used_functions.extend(handle_expression(&generator.target, class_name.clone()));
+                used_functions.extend(handle_expression(&generator.iter, class_name.clone()));
 
                 for inner_value in &generator.ifs {
-                    used_functions.extend(handle_expression(&inner_value));
+                    used_functions.extend(handle_expression(&inner_value, class_name.clone()));
                 }
             }
         }
         ast::Expr::Await(value) => {
-            used_functions.extend(handle_expression(&value.value));
+            used_functions.extend(handle_expression(&value.value, class_name.clone()));
         }
         ast::Expr::Yield(value) => {
             if value.value.is_some() {
-                used_functions.extend(handle_expression(&value.value.clone().unwrap()));
+                used_functions.extend(handle_expression(
+                    &value.value.clone().unwrap(),
+                    class_name.clone(),
+                ));
             }
         }
         ast::Expr::YieldFrom(value) => {
-            used_functions.extend(handle_expression(&value.value));
+            used_functions.extend(handle_expression(&value.value, class_name.clone()));
         }
         ast::Expr::Compare(value) => {
-            used_functions.extend(handle_expression(&value.left));
+            used_functions.extend(handle_expression(&value.left, class_name.clone()));
 
             for comparator in &value.comparators {
-                used_functions.extend(handle_expression(&comparator));
+                used_functions.extend(handle_expression(&comparator, class_name.clone()));
             }
         }
         ast::Expr::FormattedValue(value) => {
-            used_functions.extend(handle_expression(&value.value));
+            used_functions.extend(handle_expression(&value.value, class_name.clone()));
 
             if value.format_spec.is_some() {
-                used_functions.extend(handle_expression(&value.format_spec.clone().unwrap()));
+                used_functions.extend(handle_expression(
+                    &value.format_spec.clone().unwrap(),
+                    class_name.clone(),
+                ));
             }
         }
         ast::Expr::JoinedStr(value) => {
             for inner_value in &value.values {
-                used_functions.extend(handle_expression(&inner_value));
+                used_functions.extend(handle_expression(&inner_value, class_name.clone()));
             }
         }
         ast::Expr::Constant(_value) => {}
         ast::Expr::Attribute(value) => {
-            used_functions.extend(handle_expression(&value.value));
+            used_functions.extend(handle_expression(&value.value, class_name.clone()));
         }
         ast::Expr::Subscript(value) => {
-            used_functions.extend(handle_expression(&value.value));
-            used_functions.extend(handle_expression(&value.slice));
+            used_functions.extend(handle_expression(&value.value, class_name.clone()));
+            used_functions.extend(handle_expression(&value.slice, class_name.clone()));
         }
         ast::Expr::Starred(value) => {
-            used_functions.extend(handle_expression(&value.value));
+            used_functions.extend(handle_expression(&value.value, class_name));
         }
         ast::Expr::Name(_value) => {}
         ast::Expr::List(value) => {
             for inner_value in &value.elts {
-                used_functions.extend(handle_expression(&inner_value));
+                used_functions.extend(handle_expression(&inner_value, class_name.clone()));
             }
         }
         ast::Expr::Tuple(value) => {
             for inner_value in &value.elts {
-                used_functions.extend(handle_expression(&inner_value));
+                used_functions.extend(handle_expression(&inner_value, class_name.clone()));
             }
         }
         ast::Expr::Slice(value) => {
             if value.lower.is_some() {
-                used_functions.extend(handle_expression(&value.lower.clone().unwrap()));
+                used_functions.extend(handle_expression(
+                    &value.lower.clone().unwrap(),
+                    class_name.clone(),
+                ));
             }
 
             if value.upper.is_some() {
-                used_functions.extend(handle_expression(&value.upper.clone().unwrap()));
+                used_functions.extend(handle_expression(
+                    &value.upper.clone().unwrap(),
+                    class_name.clone(),
+                ));
             }
 
             if value.step.is_some() {
-                used_functions.extend(handle_expression(&value.step.clone().unwrap()));
+                used_functions.extend(handle_expression(
+                    &value.step.clone().unwrap(),
+                    class_name.clone(),
+                ));
             }
         }
     };
@@ -248,7 +283,7 @@ fn handle_function_def(
     }
 
     for decorator in decorator_list {
-        let new_used_functions = handle_expression(&decorator);
+        let new_used_functions = handle_expression(&decorator, class_name.clone());
 
         used_functions.extend(new_used_functions);
     }
@@ -276,8 +311,6 @@ fn handle_statement(
     path: &PathBuf,
     class_name: Option<String>,
 ) -> FunctionsValue {
-    dbg!(statement.clone());
-
     match statement {
         ast::Stmt::FunctionDef(value) => handle_function_def(
             FunctionDefOptions::StmtFunctionDef(value),
@@ -291,7 +324,7 @@ fn handle_statement(
         ),
         ast::Stmt::Expr(value) => {
             let functions = HashSet::new();
-            let new_used_functions = handle_expression(&value.value);
+            let new_used_functions = handle_expression(&value.value, class_name);
 
             (functions, new_used_functions)
         }
