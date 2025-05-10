@@ -1,3 +1,8 @@
+import json
+
+from tests.unused_two import SAVE_FUNCTIONS
+
+
 def first():
     print("first")
 

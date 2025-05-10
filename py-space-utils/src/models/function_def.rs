@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct FunctionDef {
     pub name: String,
     pub file: PathBuf,
@@ -17,9 +17,12 @@ impl FunctionDef {
     }
 
     pub fn full_name(&self) -> String {
-        match &self.class_name {
-            None => self.name.clone(),
-            Some(value) => String::from(value) + "." + &self.name,
+        if self.class_name.is_none() {
+            return self.name.clone();
         }
+
+        let class_name = self.class_name.clone().unwrap();
+
+        class_name + "." + &self.name
     }
 }

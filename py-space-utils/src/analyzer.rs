@@ -1,12 +1,13 @@
 use std::collections::HashSet;
 
 use crate::{
-    errors::py_space::PySpaceError, file_utils::get_files_iterator, parser::extract_file_data,
+    assignments::fix_assignments, errors::py_space::PySpaceError, file_utils::get_files_iterator,
+    models::statement_value::StatementValue, parse_statement::extract_file_data,
+    possible_functions::handle_possible_functions,
 };
 
 pub fn analyze_project() -> Result<bool, PySpaceError> {
-    let mut functions = HashSet::new();
-    let mut used_functions = HashSet::new();
+    let mut statement_value = StatementValue::new();
     let mut unused_function = HashSet::new();
 
     let walker = get_files_iterator()?;
@@ -22,15 +23,17 @@ pub fn analyze_project() -> Result<bool, PySpaceError> {
         };
 
         let path = file.path();
+        let path_str = path.to_str().map_or("", |value| value);
+        let is_venv = path_str.contains("venv");
         let is_python_file = path
             .extension()
             .map_or(false, |extension| extension == "py");
 
-        if !is_python_file {
+        if !is_python_file || is_venv {
             continue;
         }
 
-        let file_data = match extract_file_data(path.to_path_buf()) {
+        let new_statement_value = match extract_file_data(path.to_path_buf()) {
             Ok(value) => value,
             Err(error) => {
                 dbg!("error getting file data: {}", error);
@@ -39,24 +42,24 @@ pub fn analyze_project() -> Result<bool, PySpaceError> {
             }
         };
 
-        let (new_functions, new_used_functions) = file_data;
-
-        functions.extend(new_functions);
-        used_functions.extend(new_used_functions);
+        statement_value.merge_statement_value(new_statement_value);
     }
 
-    dbg!(&functions);
+    let statement_value = fix_assignments(statement_value);
+    let statement_value = handle_possible_functions(statement_value);
 
-    for function in &functions {
+    for function in &statement_value.functions {
         let name = function.full_name();
         let path = function.file.to_str().map_or("", |value| value);
 
-        if !used_functions.contains(&name) {
+        if !statement_value
+            .expression_value
+            .used_functions
+            .contains(&name)
+        {
             unused_function.insert((name, path));
         }
     }
-
-    dbg!(&used_functions, &unused_function);
 
     let mut result_string = String::from("");
 
@@ -65,6 +68,7 @@ pub fn analyze_project() -> Result<bool, PySpaceError> {
     }
 
     print!("{}", result_string);
+    dbg!(statement_value.expression_value.possible_functions);
 
     Ok(true)
 }
